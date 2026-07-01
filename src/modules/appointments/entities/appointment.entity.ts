@@ -3,7 +3,6 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
-  OneToOne,
   JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
@@ -24,7 +23,9 @@ export class Appointment {
   @Column({ name: 'patient_id' })
   patientId: string;
 
-  @Column({ name: 'slot_id', unique: true })
+  // Sin unique: la disponibilidad real la controla DoctorSlot.status;
+  // una cita cancelada/rechazada no debe impedir que el mismo slot se reserve de nuevo.
+  @Column({ name: 'slot_id' })
   slotId: string;
 
   @Column({
@@ -52,7 +53,9 @@ export class Appointment {
   @JoinColumn({ name: 'patient_id' })
   patient: Patient;
 
-  @OneToOne(() => DoctorSlot)
+  // ManyToOne (no OneToOne): un slot puede tener varias citas a lo largo del tiempo
+  // (canceladas/rechazadas incluidas); TypeORM forzaría un UNIQUE en slot_id con OneToOne.
+  @ManyToOne(() => DoctorSlot)
   @JoinColumn({ name: 'slot_id' })
   slot: DoctorSlot;
 }
