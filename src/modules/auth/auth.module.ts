@@ -19,7 +19,10 @@ import { PatientsModule } from '../patients/patients.module';
       useFactory: (config: ConfigService) => ({
         secret: config.getOrThrow<string>('JWT_SECRET'),
         signOptions: {
-          expiresIn: config.getOrThrow<number>('JWT_EXPIRES_IN'),
+          // Las env vars siempre llegan como string; si se pasa "86400" tal cual,
+          // jsonwebtoken lo interpreta como milisegundos (86.4s) en vez de segundos.
+          // Number(...) fuerza que se lea como segundos, que es lo que se configura en .env.
+          expiresIn: Number(config.getOrThrow<string>('JWT_EXPIRES_IN')),
         },
       }),
     }),
