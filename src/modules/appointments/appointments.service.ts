@@ -20,6 +20,7 @@ import { CreateAppointmentDto } from './dto/create-appointment.dto';
 
 const WORK_START_HOUR = 8;
 const WORK_END_HOUR = 17;
+const BOOKING_WINDOW_DAYS = 7;
 
 @Injectable()
 export class AppointmentsService {
@@ -35,42 +36,41 @@ export class AppointmentsService {
     private readonly appointmentsGateway: AppointmentsGateway,
   ) {}
 
-  // Semana laboral: lunes a sábado, siempre la semana en curso (sin adelantar ni consultar semanas pasadas)
-  private getCurrentWeekRange(): { monday: string; saturday: string } {
+  // Ventana móvil: desde hoy hasta hoy + 7 días (sin domingos), nunca fechas pasadas
+  private getBookingWindow(): { start: string; end: string } {
     const today = new Date();
-    const dayOfWeek = today.getDay(); // 0 = domingo
-    const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - diffToMonday);
-
-    const saturday = new Date(monday);
-    saturday.setDate(monday.getDate() + 5);
+    const end = new Date(today);
+    end.setDate(today.getDate() + BOOKING_WINDOW_DAYS);
 
     const format = (date: Date) => date.toISOString().split('T')[0];
 
-    return { monday: format(monday), saturday: format(saturday) };
+    return { start: format(today), end: format(end) };
   }
 
-  // Se asegura que la semana en curso tenga horarios disponibles, generándolos bajo demanda si faltan
-  private async ensureWeekSlots(
+  // Se asegura que la ventana de reserva tenga horarios disponibles, generándolos bajo demanda si faltan
+  private async ensureSlotsForWindow(
     doctorId: string,
-    monday: string,
-    saturday: string,
+    start: string,
+    end: string,
   ): Promise<void> {
     const existingSlots = await this.doctorSlotRepository.find({
-      where: { doctorId, date: Between(monday, saturday) },
+      where: { doctorId, date: Between(start, end) },
     });
     const existingKeys = new Set(
       existingSlots.map((slot) => `${slot.date}|${slot.startTime}`),
     );
 
-    const start = new Date(`${monday}T00:00:00`);
+    const startDate = new Date(`${start}T00:00:00`);
     const slotsToCreate: DoctorSlot[] = [];
 
-    for (let dayOffset = 0; dayOffset < 6; dayOffset++) {
-      const currentDate = new Date(start);
-      currentDate.setDate(start.getDate() + dayOffset);
+    for (let dayOffset = 0; dayOffset <= BOOKING_WINDOW_DAYS; dayOffset++) {
+      const currentDate = new Date(startDate);
+      currentDate.setDate(startDate.getDate() + dayOffset);
+
+      if (currentDate.getDay() === 0) {
+        continue; // domingo: no se atiende
+      }
+
       const dateStr = currentDate.toISOString().split('T')[0];
 
       for (let hour = WORK_START_HOUR; hour < WORK_END_HOUR; hour++) {
@@ -97,20 +97,27 @@ export class AppointmentsService {
     }
   }
 
+  private isSlotInPast(slot: { date: string; startTime: string }): boolean {
+    const slotStart = new Date(`${slot.date}T${slot.startTime}:00`);
+    return slotStart.getTime() < Date.now();
+  }
+
   async getAvailableSlots(doctorId: string): Promise<DoctorSlot[]> {
     await this.doctorsService.findOne(doctorId);
 
-    const { monday, saturday } = this.getCurrentWeekRange();
-    await this.ensureWeekSlots(doctorId, monday, saturday);
+    const { start, end } = this.getBookingWindow();
+    await this.ensureSlotsForWindow(doctorId, start, end);
 
-    return this.doctorSlotRepository.find({
+    const slots = await this.doctorSlotRepository.find({
       where: {
         doctorId,
         status: SlotStatus.AVAILABLE,
-        date: Between(monday, saturday),
+        date: Between(start, end),
       },
       order: { date: 'ASC', startTime: 'ASC' },
     });
+
+    return slots.filter((slot) => !this.isSlotInPast(slot));
   }
 
   async createAppointment(
@@ -131,6 +138,12 @@ export class AppointmentsService {
 
         if (slot.status !== SlotStatus.AVAILABLE) {
           throw new ConflictException('El horario ya no está disponible');
+        }
+
+        if (this.isSlotInPast(slot)) {
+          throw new ConflictException(
+            'No se puede reservar un horario que ya pasó',
+          );
         }
 
         const patient = await manager.findOne(Patient, {
@@ -258,6 +271,12 @@ export class AppointmentsService {
 
         if (!newSlot || newSlot.status !== SlotStatus.AVAILABLE) {
           throw new ConflictException('El nuevo horario no está disponible');
+        }
+
+        if (this.isSlotInPast(newSlot)) {
+          throw new ConflictException(
+            'No se puede reagendar a un horario que ya pasó',
+          );
         }
 
         // El slot anterior se libera dentro de la misma transacción para no dejar horarios huérfanos si algo falla

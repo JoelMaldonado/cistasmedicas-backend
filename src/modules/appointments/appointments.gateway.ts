@@ -20,7 +20,7 @@ interface JwtPayload {
 @Injectable()
 @WebSocketGateway({
   cors: {
-    origin: process.env.CORS_ORIGIN?.split(',') ?? 'http://localhost:5173',
+    origin: process.env.CORS_ORIGIN?.split(','),
   },
 })
 export class AppointmentsGateway
