@@ -20,7 +20,7 @@ Construida con [NestJS](https://nestjs.com/) + PostgreSQL (TypeORM). El cliente 
 | `auth` | Registro (siempre crea un `patient`) y login. Emite el JWT. |
 | `users` | Entidad `User` + `UserRole` compartidas por el resto de módulos. |
 | `doctors` | Alta de médicos (solo `admin`), listado, detalle. |
-| `patients` | Listado/detalle de pacientes (se crean implícitamente al registrarse). |
+| `patients` | Se crean implícitamente al registrarse. Sin endpoints públicos: solo lo consume internamente `appointments` para resolver el paciente dueño de una cita. |
 | `appointments` | El corazón del sistema: horarios (`DoctorSlot`), citas (`Appointment`), y el `AppointmentsGateway` de WebSockets. |
 
 ## Modelo de datos
@@ -60,15 +60,6 @@ UserRole (1) ── (N) User ─┘
 | GET | `/doctors` | cualquiera | Listado de médicos |
 | GET | `/doctors/:id` | cualquiera | Detalle de un médico |
 | POST | `/doctors` | `admin` | Da de alta un médico (crea `User` + `Doctor`) |
-| PATCH | `/doctors/:id` | `admin` | Actualiza un médico |
-
-### Pacientes (`/patients`) — requieren sesión
-
-| Método | Ruta | Descripción |
-|---|---|---|
-| GET | `/patients` | Listado |
-| GET | `/patients/:id` | Detalle |
-| PATCH | `/patients/:id` | Actualiza |
 
 ### Horarios y citas — requieren sesión
 
@@ -94,9 +85,8 @@ El cliente se conecta a Socket.IO pasando el mismo JWT del login (`auth: { token
 
 ## Requisitos
 
-- Node.js 20+
-- pnpm
-- Docker (para levantar Postgres) o una instancia propia de PostgreSQL
+- Docker — para correr todo (API + Postgres) sin instalar nada más, **o bien**:
+- Node.js 20+, pnpm, y una instancia de PostgreSQL propia
 
 ## Configuración
 
@@ -114,17 +104,18 @@ cp .env.example .env
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Cuenta admin que se siembra automáticamente al levantar la app |
 | `CORS_ORIGIN` | Origen(es) permitido(s), ej. `http://localhost:5173` (separar por coma si son varios) |
 
-## Base de datos
+## Ejecución con Docker (recomendado, no requiere Node ni pnpm instalados)
 
 ```bash
-docker compose up -d
+docker compose up --build
 ```
 
-Levanta Postgres con los datos de `.env`. Con `NODE_ENV=development`, TypeORM sincroniza el esquema automáticamente al iniciar — no hace falta correr migraciones. Al bootear, `SeedsService` siembra los tres roles (`admin`, `doctor`, `patient`) y la cuenta admin de `ADMIN_EMAIL`/`ADMIN_PASSWORD`.
+Levanta Postgres **y** la API juntos. Con `NODE_ENV=development` (el valor por defecto en `.env`), TypeORM sincroniza el esquema automáticamente al iniciar — no hace falta correr migraciones. Al bootear, `SeedsService` siembra los tres roles (`admin`, `doctor`, `patient`) y la cuenta admin de `ADMIN_EMAIL`/`ADMIN_PASSWORD`. Queda escuchando en `http://localhost:3005` (según `PORT`).
 
-## Instalación y ejecución
+## Instalación y ejecución manual (sin Docker)
 
 ```bash
+docker compose up -d postgres   # solo la base de datos
 pnpm install
 pnpm start:dev     # watch mode (http://localhost:3005 según PORT)
 pnpm build         # compila a dist/
