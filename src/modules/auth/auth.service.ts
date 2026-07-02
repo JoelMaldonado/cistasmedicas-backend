@@ -88,8 +88,15 @@ export class AuthService {
     id: string;
     email: string;
     fullName: string;
-    role: { name: string };
+    role: { name: string } | null;
   }) {
+    if (!user.role) {
+      // Puede pasar con datos sembrados/editados a mano sin asignar rol.
+      throw new UnauthorizedException(
+        'El usuario no tiene un rol asignado. Contacta al administrador.',
+      );
+    }
+
     const payload = {
       sub: user.id,
       email: user.email,

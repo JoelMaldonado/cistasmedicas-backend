@@ -20,9 +20,6 @@ export class Doctor {
   @Column({ name: 'specialty' })
   specialty: string;
 
-  @Column({ name: 'license_number', unique: true })
-  licenseNumber: string;
-
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

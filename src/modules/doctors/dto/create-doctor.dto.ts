@@ -15,8 +15,4 @@ export class CreateDoctorDto {
   @IsString()
   @IsNotEmpty({ message: 'La especialidad es obligatoria' })
   specialty: string;
-
-  @IsString()
-  @IsNotEmpty({ message: 'El número de colegiatura es obligatorio' })
-  licenseNumber: string;
 }

@@ -32,16 +32,6 @@ export class DoctorsService {
         throw new ConflictException('El correo ya está registrado');
       }
 
-      const existingLicense = await manager.findOne(Doctor, {
-        where: { licenseNumber: createDoctorDto.licenseNumber },
-      });
-
-      if (existingLicense) {
-        throw new ConflictException(
-          'El número de colegiatura ya está registrado',
-        );
-      }
-
       const role = await manager.findOne(UserRole, {
         where: { name: UserRoleName.DOCTOR },
       });
@@ -64,7 +54,6 @@ export class DoctorsService {
       const newDoctor = manager.create(Doctor, {
         userId: savedUser.id,
         specialty: createDoctorDto.specialty,
-        licenseNumber: createDoctorDto.licenseNumber,
       });
 
       return manager.save(newDoctor);

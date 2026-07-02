@@ -6,7 +6,6 @@ import {
   Param,
   Patch,
   Post,
-  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -19,7 +18,6 @@ import { RolesGuard } from 'src/common/guards/roles.guard';
 import { User } from '../users/entities/user.entity';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { RescheduleAppointmentDto } from './dto/reschedule-appointment.dto';
-import { GenerateSlotsDto } from './dto/generate-slots.dto';
 
 interface AuthenticatedRequest extends Request {
   user: User;
@@ -30,28 +28,9 @@ interface AuthenticatedRequest extends Request {
 export class AppointmentsController {
   constructor(private readonly appointmentsService: AppointmentsService) {}
 
-  @Post('doctors/:doctorId/generate-slots')
-  @UseGuards(RolesGuard)
-  @Roles(UserRoleName.DOCTOR)
-  generateSlots(
-    @Req() req: AuthenticatedRequest,
-    @Param('doctorId') doctorId: string,
-    @Body() generateSlotsDto: GenerateSlotsDto,
-  ) {
-    return this.appointmentsService.generateSlotsForDoctor(
-      req.user.id,
-      doctorId,
-      generateSlotsDto.startDate,
-      generateSlotsDto.days,
-    );
-  }
-
   @Get('doctors/:doctorId/available-slots')
-  getAvailableSlots(
-    @Param('doctorId') doctorId: string,
-    @Query('fromDate') fromDate?: string,
-  ) {
-    return this.appointmentsService.getAvailableSlots(doctorId, fromDate);
+  getAvailableSlots(@Param('doctorId') doctorId: string) {
+    return this.appointmentsService.getAvailableSlots(doctorId);
   }
 
   @Post('appointments')

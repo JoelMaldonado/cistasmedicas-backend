@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, MoreThanOrEqual, Repository } from 'typeorm';
+import { Between, DataSource, Repository } from 'typeorm';
 import { DoctorSlot } from './entities/doctor-slot.entity';
 import { Appointment } from './entities/appointment.entity';
 import { Doctor } from '../doctors/entities/doctor.entity';
@@ -20,7 +20,6 @@ import { CreateAppointmentDto } from './dto/create-appointment.dto';
 
 const WORK_START_HOUR = 8;
 const WORK_END_HOUR = 17;
-const DEFAULT_GENERATION_DAYS = 14;
 
 @Injectable()
 export class AppointmentsService {
@@ -36,73 +35,79 @@ export class AppointmentsService {
     private readonly appointmentsGateway: AppointmentsGateway,
   ) {}
 
-  async generateSlotsForDoctor(
-    doctorUserId: string,
+  // Semana laboral: lunes a sábado, siempre la semana en curso (sin adelantar ni consultar semanas pasadas)
+  private getCurrentWeekRange(): { monday: string; saturday: string } {
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0 = domingo
+    const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - diffToMonday);
+
+    const saturday = new Date(monday);
+    saturday.setDate(monday.getDate() + 5);
+
+    const format = (date: Date) => date.toISOString().split('T')[0];
+
+    return { monday: format(monday), saturday: format(saturday) };
+  }
+
+  // Se asegura que la semana en curso tenga horarios disponibles, generándolos bajo demanda si faltan
+  private async ensureWeekSlots(
     doctorId: string,
-    startDate: string,
-    days?: number,
-  ): Promise<DoctorSlot[]> {
-    const doctor = await this.doctorsService.findOne(doctorId);
+    monday: string,
+    saturday: string,
+  ): Promise<void> {
+    const existingSlots = await this.doctorSlotRepository.find({
+      where: { doctorId, date: Between(monday, saturday) },
+    });
+    const existingKeys = new Set(
+      existingSlots.map((slot) => `${slot.date}|${slot.startTime}`),
+    );
 
-    if (doctor.userId !== doctorUserId) {
-      throw new ForbiddenException(
-        'No puede generar horarios para otro médico',
-      );
-    }
+    const start = new Date(`${monday}T00:00:00`);
+    const slotsToCreate: DoctorSlot[] = [];
 
-    const totalDays = days ?? DEFAULT_GENERATION_DAYS;
-    const start = new Date(`${startDate}T00:00:00`);
-    const createdSlots: DoctorSlot[] = [];
-
-    for (let dayOffset = 0; dayOffset < totalDays; dayOffset++) {
+    for (let dayOffset = 0; dayOffset < 6; dayOffset++) {
       const currentDate = new Date(start);
       currentDate.setDate(start.getDate() + dayOffset);
-      const dayOfWeek = currentDate.getDay(); // 0 = domingo, 6 = sábado
-
-      if (dayOfWeek === 0 || dayOfWeek === 6) {
-        continue;
-      }
-
       const dateStr = currentDate.toISOString().split('T')[0];
 
       for (let hour = WORK_START_HOUR; hour < WORK_END_HOUR; hour++) {
         const startTime = `${hour.toString().padStart(2, '0')}:00`;
-        const endTime = `${(hour + 1).toString().padStart(2, '0')}:00`;
 
-        // Se verifica existencia previa para no violar el unique constraint si el proceso se corre más de una vez
-        const existingSlot = await this.doctorSlotRepository.findOne({
-          where: { doctorId, date: dateStr, startTime },
-        });
-
-        if (existingSlot) {
+        if (existingKeys.has(`${dateStr}|${startTime}`)) {
           continue;
         }
 
-        const slot = this.doctorSlotRepository.create({
-          doctorId,
-          date: dateStr,
-          startTime,
-          endTime,
-        });
-
-        createdSlots.push(await this.doctorSlotRepository.save(slot));
+        const endTime = `${(hour + 1).toString().padStart(2, '0')}:00`;
+        slotsToCreate.push(
+          this.doctorSlotRepository.create({
+            doctorId,
+            date: dateStr,
+            startTime,
+            endTime,
+          }),
+        );
       }
     }
 
-    return createdSlots;
+    if (slotsToCreate.length > 0) {
+      await this.doctorSlotRepository.save(slotsToCreate);
+    }
   }
 
-  async getAvailableSlots(
-    doctorId: string,
-    fromDate?: string,
-  ): Promise<DoctorSlot[]> {
+  async getAvailableSlots(doctorId: string): Promise<DoctorSlot[]> {
     await this.doctorsService.findOne(doctorId);
+
+    const { monday, saturday } = this.getCurrentWeekRange();
+    await this.ensureWeekSlots(doctorId, monday, saturday);
 
     return this.doctorSlotRepository.find({
       where: {
         doctorId,
         status: SlotStatus.AVAILABLE,
-        ...(fromDate ? { date: MoreThanOrEqual(fromDate) } : {}),
+        date: Between(monday, saturday),
       },
       order: { date: 'ASC', startTime: 'ASC' },
     });
